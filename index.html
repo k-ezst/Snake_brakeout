@@ -163,7 +163,6 @@
     let totalBricksInStage, destroyedBricks;
     let foodSpawner;
     
-    // [조작 버그 수정] 상태 변수 재구성
     let inputLocked = false;
     let isMouseDown = false;
     let isTouchDown = false;
@@ -185,7 +184,6 @@
         ball: { radius: 10, speed: 6 },
         paddle: { initialSegmentCount: 15, segmentRadius: 8, growthFactor: 1, headRadiusMultiplier: 1.5, maxSegmentRadius: 14 },
         food: { size: 15, speed: 1.8 },
-        // [레이아웃 수정] 상단 UI 영역 확보를 위해 y값 조정
         playAreaY: 180,
         brickOffsetTop: 100,
     };
@@ -229,6 +227,11 @@
     }
 
     function resetGame() {
+        // [버그 수정] 모든 입력 상태를 명확하게 초기화
+        isMouseDown = false;
+        isTouchDown = false;
+        inputLocked = false;
+        
         score = 0; lives = 3; stage = 1;
         paddle = { segments: [], segmentRadius: config.paddle.segmentRadius, growthFactor: config.paddle.growthFactor, upperLimit: config.paddle.upperLimit };
         resetPaddle();
@@ -297,7 +300,6 @@
     }
     function getTouchPos(canvas, evt) { const rect = canvas.getBoundingClientRect(); const scaleX = canvas.width / rect.width; const scaleY = canvas.height / rect.height; const touchX = (evt.touches[0].clientX - rect.left) * scaleX; const touchY = (evt.touches[0].clientY - rect.top) * scaleY; return { x: touchX, y: touchY }; }
     
-    // [조작 버그 수정] 이벤트 리스너 로직 개선
     canvas.addEventListener('mousedown', e => {
         if (gameState === 'start') { resetGame(); return; }
         isMouseDown = true;
@@ -322,10 +324,17 @@
     window.addEventListener('touchend', () => {
         isTouchDown = false;
     });
-
-    // 키보드
     window.addEventListener('keydown', e => { keysDown[e.key] = true; });
     window.addEventListener('keyup', e => { delete keysDown[e.key]; });
+    // [버그 수정] 창 포커스를 잃었을 때 입력 상태 초기화
+    window.addEventListener('blur', () => {
+        isMouseDown = false;
+        isTouchDown = false;
+        for (const key in keysDown) {
+            delete keysDown[key];
+        }
+    });
+
 
     // --- 그리기 함수 영역 ---
     function drawSeparator() { ctx.beginPath(); ctx.setLineDash([5, 15]); ctx.moveTo(0, config.playAreaY); ctx.lineTo(canvas.width, config.playAreaY); ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke(); ctx.setLineDash([]); ctx.closePath(); }
@@ -434,20 +443,17 @@
         
         const head = paddle.segments[0];
         
-        // [조작 버그 수정] 명확한 상태 플래그를 사용하여 조작 로직 재구성
         if (!inputLocked) {
             const headRadius = head.radius * config.paddle.headRadiusMultiplier;
-            // 마우스 드래그 또는 터치 상태일 때
             if (isMouseDown || isTouchDown) {
                 head.x = inputTarget.x;
                 head.y = inputTarget.y;
-            } else { // 입력이 없을 때만 키보드 조작
+            } else {
                 if (keysDown['ArrowLeft'] || keysDown['a']) head.x -= PADDLE_KEYBOARD_SPEED;
                 if (keysDown['ArrowRight'] || keysDown['d']) head.x += PADDLE_KEYBOARD_SPEED;
                 if (keysDown['ArrowUp'] || keysDown['w']) head.y -= PADDLE_KEYBOARD_SPEED;
                 if (keysDown['ArrowDown'] || keysDown['s']) head.y += PADDLE_KEYBOARD_SPEED;
             }
-            // [버그 수정] 모든 조작 후에 최종적으로 경계 처리
             head.x = Math.max(headRadius, Math.min(canvas.width - headRadius, head.x));
             head.y = Math.max(paddle.upperLimit + headRadius, Math.min(canvas.height - headRadius, head.y));
         }
