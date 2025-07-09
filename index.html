@@ -160,7 +160,7 @@
     let balls = [];
     let paddle, bricks, food;
     let particles = [];
-    let score, lives, stage; // [수정] lives 변수 다시 사용
+    let score, lives, stage;
     let totalBricksInStage, destroyedBricks;
     let foodSpawner;
     let powerUpTimers = { explosive: 0, penalty_speed: 0 };
@@ -176,7 +176,8 @@
     let lastFrameTime = 0;
 
     const keysDown = {}; 
-
+    
+    const TOUCH_OFFSET = { x: -30, y: -60 };
     const GRAVITY = 0.02; 
     const PADDLE_BOOST = 4.5;
     const MIN_BALL_SPEED = 3.5; 
@@ -232,7 +233,7 @@
 
     function resetGame() {
         isMouseDown = false; isTouchDown = false; inputLocked = false;
-        score = 0; lives = 3; stage = 1; // [수정] lives 초기화
+        score = 0; lives = 3; stage = 1;
         paddle = { segments: [], segmentRadius: config.paddle.segmentRadius, growthFactor: config.paddle.growthFactor, upperLimit: config.paddle.upperLimit };
         resetPaddle();
         food = { x: 0, y: 0, size: config.food.size, status: 0, type: 'growth' };
@@ -318,7 +319,12 @@
                 case 'explosive': foodColor = '#ff4444'; break;
                 case 'penalty_speed': foodColor = '#333333'; break;
             }
-            ctx.beginPath(); ctx.arc(food.x, food.y, food.size, 0, Math.PI * 2); ctx.fillStyle = foodColor; ctx.shadowColor = foodColor; ctx.shadowBlur = 15; ctx.fill(); ctx.closePath(); ctx.shadowBlur = 0;
+            ctx.beginPath(); ctx.arc(food.x, food.y, food.size, 0, Math.PI * 2); ctx.fillStyle = foodColor; ctx.shadowColor = foodColor; ctx.shadowBlur = 15; ctx.fill();
+            // [수정] 검은 먹이일 때 흰 테두리 추가
+            if (food.type === 'penalty_speed') {
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+            }
+            ctx.closePath(); ctx.shadowBlur = 0;
             createParticles(food.x, food.y, foodColor, 1, 20, 1);
         }
         bricks.forEach(b => { if (b.status === 1) { ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.fillStyle = b.color; ctx.fill(); ctx.closePath(); } });
@@ -460,7 +466,20 @@
         if (!inputLocked) {
             const headRadius = head.radius * config.paddle.headRadiusMultiplier;
             if (isMouseDown || isTouchDown) {
-                head.x = inputTarget.x; head.y = inputTarget.y;
+                let targetX = inputTarget.x;
+                let targetY = inputTarget.y;
+                if (isTouchDown) {
+                    targetY += TOUCH_OFFSET.y;
+                    const softBorder = canvas.width - 80;
+                    let finalXOffset = TOUCH_OFFSET.x;
+                    if (inputTarget.x > softBorder) {
+                        const ratio = (inputTarget.x - softBorder) / (canvas.width - softBorder);
+                        finalXOffset = TOUCH_OFFSET.x * (1 - ratio);
+                    }
+                    targetX += finalXOffset;
+                }
+                head.x = targetX;
+                head.y = targetY;
             } else {
                 if (keysDown['ArrowLeft'] || keysDown['a']) head.x -= PADDLE_KEYBOARD_SPEED;
                 if (keysDown['ArrowRight'] || keysDown['d']) head.x += PADDLE_KEYBOARD_SPEED;
@@ -494,11 +513,10 @@
             if (ball.x + currentRadius > canvas.width || ball.x - currentRadius < 0) { ball.dx *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
             if (ball.y - currentRadius < 0) { ball.dy *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
             
-            // [수정] 남은 기회(lives) 차감 로직으로 변경
             if (ball.y + currentRadius > canvas.height) {
                 balls.splice(i, 1);
                 createParticles(ball.x, canvas.height - 5, '#ff4444', 40, 60, 6);
-                if (balls.length === 0) { // 모든 공을 놓쳤을 때
+                if (balls.length === 0) {
                     lives--;
                     if (lives <= 0) {
                         gameState = 'gameOver';
@@ -520,7 +538,13 @@
                     ball.x += normalX * overlap; ball.y += normalY * overlap;
                     const dotProduct = ball.dx * normalX + ball.dy * normalY;
                     ball.dx -= 2 * dotProduct * normalX; ball.dy -= 2 * dotProduct * normalY;
-                    if (normalY > 0.1) { ball.dy -= PADDLE_BOOST; }
+                    if (normalY > 0.1) {
+                        ball.dy -= PADDLE_BOOST;
+                        // [버그 수정] 공 끼임 방지: 충돌 후 수평 속도가 너무 낮으면, 임의의 힘을 가해 탈출시킴
+                        if (Math.abs(ball.dx) < 0.5) {
+                            ball.dx += (ball.x < canvas.width / 2) ? 0.5 : -0.5;
+                        }
+                    }
                 }
             });
         }
