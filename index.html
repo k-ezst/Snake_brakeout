@@ -714,14 +714,14 @@
         if (gameState === 'playing' || gameState === 'stageStart' || gameState === 'stageCleared') { drawSeparator(); drawObjects(); }
         
         switch(gameState) {
-            case 'start': showMessage('<span style="font-size: 24px;">(터치 또는 클릭하여 시작)</span>'); break;
+            case 'start': showMessage('<span style="font-size: 24px;">(터치 or 클릭)</span>'); break;
             case 'stageStart': showMessage(`스테이지 ${stage}`); break;
             case 'stageCleared': 
                 showMessage(`스테이지 ${stage}<br><span class="clear-text">클리어!</span>`);
                 nextStageBtn.style.display = 'block';
                 break;
             case 'win':
-                showMessage('축하합니다!<br><span class="clear-text" style="font-size: 28px;">모든 스테이지 클리어!</span>');
+                showMessage('축하합니다!<br><span class="clear-text" style="font-size: 28px;">모든 스테이지<br>클리어!</span>');
                 createParticles(canvas.width * Math.random(), canvas.height * Math.random(), `hsl(${Math.random() * 360}, 100%, 70%)`, 1, 60, 10);
                 break;
             case 'gameOver': showMessage(`게임 오버!<br><span style="font-size: 24px;">최종 점수: ${score}</span>`); break;
