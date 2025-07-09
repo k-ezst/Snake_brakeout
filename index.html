@@ -74,7 +74,7 @@
             gap: 15px; 
             background-color: rgba(0, 0, 0, 0.4);
             padding: 10px 20px;
-            border-radius: 10px;
+            border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             z-index: 10;
             backdrop-filter: blur(5px);
@@ -108,7 +108,7 @@
         }
         #debugNextStageBtn {
             position: absolute;
-            bottom: 10px;
+            bottom: 5px;
             right: 20px;
             z-index: 50;
             background-color: #555;
@@ -133,7 +133,7 @@
             <span id="score-value" class="value">0</span>
         </div>
         <div class="info-item">
-            <span class="label">남은 공</span>
+            <span class="label">남은 기회</span>
             <span id="lives-value" class="value">3</span>
         </div>
     </div>
@@ -157,11 +157,13 @@
     const livesValEl = document.getElementById('lives-value');
 
     let gameState = 'start';
-    let ball, paddle, bricks, food;
+    let balls = [];
+    let paddle, bricks, food;
     let particles = [];
-    let score, lives, stage;
+    let score, lives, stage; // [수정] lives 변수 다시 사용
     let totalBricksInStage, destroyedBricks;
     let foodSpawner;
+    let powerUpTimers = { explosive: 0, penalty_speed: 0 };
     
     let inputLocked = false;
     let isMouseDown = false;
@@ -204,167 +206,120 @@
 
     class Particle { constructor(x, y, color, life = 30, speed = 4) { this.x = x; this.y = y; this.color = color; this.size = Math.random() * 3 + 2; this.life = life + Math.random() * life; this.initialLife = this.life; this.vx = (Math.random() - 0.5) * speed; this.vy = (Math.random() - 0.5) * speed; } update() { this.x += this.vx; this.y += this.vy; this.life--; } draw() { ctx.globalAlpha = Math.max(0, this.life / this.initialLife); ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0; } }
     function createParticles(x, y, color, count, life, speed) { for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color, life, speed)); }
-    function setupStage(level) { const designData = stageDesigns[level - 1]; if (!designData) { gameState = 'win'; return; } gameState = 'stageStart'; setTimeout(() => gameState = 'playing', 1000); const { design, brickSize } = designData; const padding = 10; const totalBrickWidth = design[0].length * (brickSize.width + padding) - padding; const offsetLeft = (canvas.width - totalBrickWidth) / 2; bricks = []; totalBricksInStage = 0; destroyedBricks = 0; for (let r = 0; r < design.length; r++) { for (let c = 0; c < design[r].length; c++) { if (design[r][c] === 1) { const brickX = c * (brickSize.width + padding) + offsetLeft; const brickY = r * (brickSize.height + padding) + config.brickOffsetTop; bricks.push({ x: brickX, y: brickY, w: brickSize.width, h: brickSize.height, status: 1, color: `hsl(${r * 40}, 90%, 60%)` }); totalBricksInStage++; } } } resetBall(true); }
+    function createDirectedParticles(startX, startY, endX, endY, color, count) {
+        const angle = Math.atan2(endY - startY, endX - startX);
+        for (let i = 0; i < count; i++) {
+            const p = new Particle(startX, startY, color, 40, 3);
+            const spread = (Math.random() - 0.5) * 0.8;
+            const speed = 2 + Math.random() * 3;
+            p.vx = Math.cos(angle + spread) * speed;
+            p.vy = Math.sin(angle + spread) * speed;
+            particles.push(p);
+        }
+    }
+    function setupStage(level) { const designData = stageDesigns[level - 1]; if (!designData) { gameState = 'win'; return; } gameState = 'stageStart'; setTimeout(() => gameState = 'playing', 1000); const { design, brickSize } = designData; const padding = 10; const totalBrickWidth = design[0].length * (brickSize.width + padding) - padding; const offsetLeft = (canvas.width - totalBrickWidth) / 2; bricks = []; totalBricksInStage = 0; destroyedBricks = 0; for (let r = 0; r < design.length; r++) { for (let c = 0; c < design[r].length; c++) { if (design[r][c] === 1) { const brickX = c * (brickSize.width + padding) + offsetLeft; const brickY = r * (brickSize.height + padding) + config.brickOffsetTop; bricks.push({ x: brickX, y: brickY, w: brickSize.width, h: brickSize.height, status: 1, color: `hsl(${r * 40}, 90%, 60%)` }); totalBricksInStage++; } } } resetBalls(true); }
     function resetPaddle() {
         paddle.segmentRadius = config.paddle.segmentRadius;
         paddle.segments = [];
         const initialHeadX = canvas.width / 2;
         const initialHeadY = canvas.height - 80;
         for (let i = 0; i < config.paddle.initialSegmentCount; i++) {
-            paddle.segments.push({
-                x: initialHeadX,
-                y: initialHeadY + i * paddle.segmentRadius,
-                radius: config.paddle.segmentRadius
-            });
+            paddle.segments.push({ x: initialHeadX, y: initialHeadY + i * paddle.segmentRadius, radius: config.paddle.segmentRadius });
         }
     }
     
-    function lockInput(duration) {
-        inputLocked = true;
-        setTimeout(() => {
-            inputLocked = false;
-        }, duration);
-    }
+    function lockInput(duration) { inputLocked = true; setTimeout(() => { inputLocked = false; }, duration); }
 
     function resetGame() {
-        // [버그 수정] 모든 입력 상태를 명확하게 초기화
-        isMouseDown = false;
-        isTouchDown = false;
-        inputLocked = false;
-        
-        score = 0; lives = 3; stage = 1;
+        isMouseDown = false; isTouchDown = false; inputLocked = false;
+        score = 0; lives = 3; stage = 1; // [수정] lives 초기화
         paddle = { segments: [], segmentRadius: config.paddle.segmentRadius, growthFactor: config.paddle.growthFactor, upperLimit: config.paddle.upperLimit };
         resetPaddle();
-        food = { x: 0, y: 0, size: config.food.size, status: 0, dx: 0, dy: 0, type: 'growth' };
+        food = { x: 0, y: 0, size: config.food.size, status: 0, type: 'growth' };
         particles = [];
-        
-        gameTimer = 0;
-        lastSpeedUpTime = 0;
-        speedUpCount = 0;
+        gameTimer = 0; lastSpeedUpTime = 0; speedUpCount = 0;
+        powerUpTimers = { explosive: 0, penalty_speed: 0 };
 
         if (foodSpawner) clearInterval(foodSpawner);
-        foodSpawner = setInterval(() => { if (food.status === 0 && gameState === 'playing') { spawnFood(); } }, 8000);
+        foodSpawner = setInterval(() => { if (food.status === 0 && gameState === 'playing') { spawnFood(); } }, 6000);
         setupStage(stage);
     }
     
-    function resetBall(isNewStage = false) {
-        ball = { x: canvas.width / 2, y: canvas.height / 2 + 50, radius: config.ball.radius, dx: 0, dy: 0, visible: false, color: '#00ffff', history: [] };
+    function resetBalls(isNewStage = false) {
+        balls = [];
+        powerUpTimers = { explosive: 0, penalty_speed: 0 };
+        const newBall = {
+            x: canvas.width / 2, y: canvas.height / 2 + 50,
+            radius: config.ball.radius, dx: 0, dy: 0,
+            visible: false, color: '#00ffff', history: [],
+            isExplosive: false, sizeMultiplier: 1, hasWhiteBorder: false
+        };
+        balls.push(newBall);
+
         speedUpCount = 0;
         lastSpeedUpTime = gameTimer; 
 
         setTimeout(() => {
             const head = paddle.segments[0];
-            ball.x = head.x;
-            ball.y = head.y - head.radius - 1;
-            
+            newBall.x = head.x; newBall.y = head.y - newBall.radius - 1;
             const launchAngle = (Math.random() * (Math.PI / 2)) + (Math.PI / 4);
-            ball.dx = config.ball.speed * Math.cos(launchAngle);
-            ball.dy = -config.ball.speed * Math.sin(launchAngle);
-            
-            ball.visible = true;
+            newBall.dx = config.ball.speed * Math.cos(launchAngle);
+            newBall.dy = -config.ball.speed * Math.sin(launchAngle);
+            newBall.visible = true;
         }, isNewStage ? 500 : 1000);
     }
 
     // --- 이벤트 리스너 영역 ---
     restartBtn.addEventListener('click', () => { if (gameState !== 'stageStart') resetGame(); });
-    nextStageBtn.addEventListener('click', () => {
-        gameState = 'playing';
-        stage++;
-        resetPaddle();
-        lockInput(1000); 
-        setupStage(stage);
-        nextStageBtn.style.display = 'none';
-        showMessage('');
-    });
-    debugNextStageBtn.addEventListener('click', () => {
-        if (gameState === 'win' || gameState === 'gameOver') return;
-        if (stage < stageDesigns.length) {
-            stage++;
-            resetPaddle();
-            lockInput(1000);
-            setupStage(stage);
-            nextStageBtn.style.display = 'none';
-            messageEl.parentElement.style.display = 'none';
-        } else {
-            gameState = 'win';
-        }
-    });
-    function getMousePos(canvas, evt) {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
-        return {
-            x: (evt.clientX - rect.left) * scaleX,
-            y: (evt.clientY - rect.top) * scaleY
-        };
-    }
+    nextStageBtn.addEventListener('click', () => { gameState = 'playing'; stage++; resetPaddle(); lockInput(1000); setupStage(stage); nextStageBtn.style.display = 'none'; showMessage(''); });
+    debugNextStageBtn.addEventListener('click', () => { if (gameState === 'win' || gameState === 'gameOver') return; if (stage < stageDesigns.length) { stage++; resetPaddle(); lockInput(1000); setupStage(stage); nextStageBtn.style.display = 'none'; messageEl.parentElement.style.display = 'none'; } else { gameState = 'win'; } });
+    function getMousePos(canvas, evt) { const rect = canvas.getBoundingClientRect(); const scaleX = canvas.width / rect.width; const scaleY = canvas.height / rect.height; return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY }; }
     function getTouchPos(canvas, evt) { const rect = canvas.getBoundingClientRect(); const scaleX = canvas.width / rect.width; const scaleY = canvas.height / rect.height; const touchX = (evt.touches[0].clientX - rect.left) * scaleX; const touchY = (evt.touches[0].clientY - rect.top) * scaleY; return { x: touchX, y: touchY }; }
-    
-    canvas.addEventListener('mousedown', e => {
-        if (gameState === 'start') { resetGame(); return; }
-        isMouseDown = true;
-        inputTarget = getMousePos(canvas, e);
-    });
-    window.addEventListener('mousemove', e => {
-        if (isMouseDown) { inputTarget = getMousePos(canvas, e); }
-    });
-    window.addEventListener('mouseup', () => {
-        isMouseDown = false;
-    });
-    canvas.addEventListener('touchstart', e => {
-        e.preventDefault();
-        if (gameState === 'start') { resetGame(); return; }
-        isTouchDown = true;
-        inputTarget = getTouchPos(canvas, e);
-    });
-    canvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        if (isTouchDown) { inputTarget = getTouchPos(canvas, e); }
-    });
-    window.addEventListener('touchend', () => {
-        isTouchDown = false;
-    });
+    canvas.addEventListener('mousedown', e => { if (gameState === 'start') { resetGame(); return; } isMouseDown = true; inputTarget = getMousePos(canvas, e); });
+    window.addEventListener('mousemove', e => { if (isMouseDown) { inputTarget = getMousePos(canvas, e); } });
+    window.addEventListener('mouseup', () => { isMouseDown = false; });
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); if (gameState === 'start') { resetGame(); return; } isTouchDown = true; inputTarget = getTouchPos(canvas, e); });
+    canvas.addEventListener('touchmove', e => { e.preventDefault(); if (isTouchDown) { inputTarget = getTouchPos(canvas, e); } });
+    window.addEventListener('touchend', () => { isTouchDown = false; });
     window.addEventListener('keydown', e => { keysDown[e.key] = true; });
     window.addEventListener('keyup', e => { delete keysDown[e.key]; });
-    // [버그 수정] 창 포커스를 잃었을 때 입력 상태 초기화
-    window.addEventListener('blur', () => {
-        isMouseDown = false;
-        isTouchDown = false;
-        for (const key in keysDown) {
-            delete keysDown[key];
-        }
-    });
-
+    window.addEventListener('blur', () => { isMouseDown = false; isTouchDown = false; for (const key in keysDown) { delete keysDown[key]; } });
 
     // --- 그리기 함수 영역 ---
     function drawSeparator() { ctx.beginPath(); ctx.setLineDash([5, 15]); ctx.moveTo(0, config.playAreaY); ctx.lineTo(canvas.width, config.playAreaY); ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke(); ctx.setLineDash([]); ctx.closePath(); }
     
     function drawObjects() {
-        if (ball.visible && ball.history) {
-            const [r, g, b] = ball.color.match(/\d+/g) || ['0','255','255'];
-            ball.history.forEach((pos, index) => {
-                const opacity = (index / ball.history.length) * 0.4;
-                const radius = ball.radius * (index / ball.history.length);
-                ctx.beginPath();
-                ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-                ctx.fill();
-            });
-        }
-        
-        if (ball.visible) { ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2); ctx.fillStyle = ball.color; ctx.shadowColor = ball.color; ctx.shadowBlur = 10; ctx.fill(); ctx.closePath(); ctx.shadowBlur = 0; }
+        balls.forEach(ball => {
+            if (!ball.visible) return;
+            const currentRadius = ball.radius * ball.sizeMultiplier;
+            if (ball.history) {
+                const [r, g, b] = ball.color.match(/\d+/g) || ['0','255','255'];
+                ball.history.forEach((pos, index) => {
+                    const opacity = (index / ball.history.length) * 0.4;
+                    const radius = currentRadius * (index / ball.history.length);
+                    ctx.beginPath(); ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2); ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`; ctx.fill();
+                });
+            }
+            ctx.beginPath(); ctx.arc(ball.x, ball.y, currentRadius, 0, Math.PI * 2); ctx.fillStyle = ball.color; ctx.shadowColor = ball.color; ctx.shadowBlur = 10; ctx.fill();
+            if (ball.hasWhiteBorder) {
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+            }
+            ctx.closePath(); ctx.shadowBlur = 0;
+        });
+
         paddle.segments.forEach((segment, index) => { const currentRadius = index === 0 ? segment.radius * config.paddle.headRadiusMultiplier : segment.radius; ctx.beginPath(); ctx.arc(segment.x, segment.y, currentRadius, 0, Math.PI * 2); ctx.fillStyle = index === 0 ? '#ff00ff' : '#cc00cc'; ctx.shadowColor = '#ff00ff'; ctx.shadowBlur = 15; ctx.fill(); ctx.closePath(); ctx.shadowBlur = 0; });
+        
         if (food.status === 1) {
-            const foodColor = food.type === 'thickness' ? '#4a90e2' : '#00ff00';
-            ctx.beginPath();
-            ctx.arc(food.x, food.y, food.size, 0, Math.PI * 2);
-            ctx.fillStyle = foodColor;
-            ctx.shadowColor = foodColor;
-            ctx.shadowBlur = 15;
-            ctx.fill();
-            ctx.closePath();
-            ctx.shadowBlur = 0;
-            createParticles(food.x + (Math.random() - 0.5) * food.size, food.y + (Math.random() - 0.5) * food.size, 'rgba(255,255,0,0.8)', 5, 15, 2);
+            let foodColor;
+            switch(food.type) {
+                case 'growth': foodColor = '#00ff00'; break;
+                case 'thickness': foodColor = '#4a90e2'; break;
+                case 'split': foodColor = '#ffff00'; break;
+                case 'explosive': foodColor = '#ff4444'; break;
+                case 'penalty_speed': foodColor = '#333333'; break;
+            }
+            ctx.beginPath(); ctx.arc(food.x, food.y, food.size, 0, Math.PI * 2); ctx.fillStyle = foodColor; ctx.shadowColor = foodColor; ctx.shadowBlur = 15; ctx.fill(); ctx.closePath(); ctx.shadowBlur = 0;
+            createParticles(food.x, food.y, foodColor, 1, 20, 1);
         }
         bricks.forEach(b => { if (b.status === 1) { ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.fillStyle = b.color; ctx.fill(); ctx.closePath(); } });
     }
@@ -372,27 +327,58 @@
     function drawInfo() { stageValEl.textContent = stage; scoreValEl.textContent = score; livesValEl.textContent = lives; }
 
     // --- 게임 로직 함수 영역 ---
-    function spawnFood() { food.status = 1; food.type = Math.random() < 0.3 ? 'thickness' : 'growth'; food.x = Math.random() * (canvas.width - food.size * 2) + food.size; food.y = Math.random() * (canvas.height - config.playAreaY - food.size * 2) + config.playAreaY + food.size; food.dx = (Math.random() - 0.5) * config.food.speed; food.dy = (Math.random() - 0.5) * config.food.speed; }
+    function spawnFood() {
+        food.status = 1;
+        const rand = Math.random();
+        if (rand < 0.25) food.type = 'growth';
+        else if (rand < 0.5) food.type = 'thickness';
+        else if (rand < 0.7) food.type = 'split';
+        else if (rand < 0.85) food.type = 'explosive';
+        else food.type = 'penalty_speed';
+        
+        food.x = Math.random() * (canvas.width - food.size * 2) + food.size; food.y = Math.random() * (canvas.height - config.playAreaY - food.size * 2) + config.playAreaY + food.size; food.dx = (Math.random() - 0.5) * config.food.speed; food.dy = (Math.random() - 0.5) * config.food.speed;
+    }
     
     function collisionDetection() {
-        bricks.forEach(b => {
-            if (b.status === 1) {
-                let testX = ball.x; let testY = ball.y;
-                if (ball.x < b.x) testX = b.x; else if (ball.x > b.x + b.w) testX = b.x + b.w;
-                if (ball.y < b.y) testY = b.y; else if (ball.y > b.y + b.h) testY = b.y + b.h;
-                let distX = ball.x - testX; let distY = ball.y - testY;
-                let distance = Math.sqrt((distX * distX) + (distY * distY));
-                if (distance <= ball.radius) {
-                    b.status = 0; score++; destroyedBricks++;
-                    createParticles(ball.x, ball.y, b.color, 15);
-                    const prevBallX = ball.x - ball.dx; const prevBallY = ball.y - ball.dy;
-                    const hitFromLeftOrRight = (prevBallX + ball.radius <= b.x && ball.x + ball.radius > b.x) || (prevBallX - ball.radius >= b.x + b.w && ball.x - ball.radius < b.x + b.w);
-                    const hitFromTopOrBottom = (prevBallY + ball.radius <= b.y && ball.y + ball.radius > b.y) || (prevBallY - ball.radius >= b.y + b.h && ball.y - ball.radius < b.y + b.h);
-                    if (hitFromLeftOrRight) ball.dx *= -1;
-                    if (hitFromTopOrBottom) ball.dy *= -1;
+        for (let i = balls.length - 1; i >= 0; i--) {
+            const ball = balls[i];
+            bricks.forEach(b => {
+                if (b.status === 1) {
+                    const currentRadius = ball.radius * ball.sizeMultiplier;
+                    let testX = ball.x; let testY = ball.y;
+                    if (ball.x < b.x) testX = b.x; else if (ball.x > b.x + b.w) testX = b.x + b.w;
+                    if (ball.y < b.y) testY = b.y; else if (ball.y > b.y + b.h) testY = b.y + b.h;
+                    let distX = ball.x - testX; let distY = ball.y - testY;
+                    let distance = Math.sqrt((distX * distX) + (distY * distY));
+                    if (distance <= currentRadius) {
+                        b.status = 0; score++; destroyedBricks++;
+                        createParticles(ball.x, ball.y, b.color, 15);
+                        
+                        if (ball.isExplosive) {
+                            const splashRadius = 75;
+                            createParticles(ball.x, ball.y, '#ff8800', 50, 60, 8);
+                            bricks.forEach(otherBrick => {
+                                if (otherBrick.status === 1) {
+                                    const brickCenterX = otherBrick.x + otherBrick.w / 2;
+                                    const brickCenterY = otherBrick.y + otherBrick.h / 2;
+                                    const splashDist = Math.sqrt(Math.pow(brickCenterX - ball.x, 2) + Math.pow(brickCenterY - ball.y, 2));
+                                    if (splashDist < splashRadius) {
+                                        otherBrick.status = 0; score++; destroyedBricks++;
+                                        createParticles(brickCenterX, brickCenterY, otherBrick.color, 10);
+                                    }
+                                }
+                            });
+                        }
+
+                        const prevBallX = ball.x - ball.dx; const prevBallY = ball.y - ball.dy;
+                        const hitFromLeftOrRight = (prevBallX + currentRadius <= b.x && ball.x + currentRadius > b.x) || (prevBallX - currentRadius >= b.x + b.w && ball.x - currentRadius < b.x + b.w);
+                        const hitFromTopOrBottom = (prevBallY + currentRadius <= b.y && ball.y + currentRadius > b.y) || (prevBallY - currentRadius >= b.y + b.h && ball.y - currentRadius < b.y + b.h);
+                        if (hitFromLeftOrRight) ball.dx *= -1;
+                        if (hitFromTopOrBottom) ball.dy *= -1;
+                    }
                 }
-            }
-        });
+            });
+        }
 
         if (totalBricksInStage > 0 && destroyedBricks >= totalBricksInStage) {
             if (stage === stageDesigns.length) { gameState = 'win'; } else { gameState = 'stageCleared'; }
@@ -403,17 +389,38 @@
             const head = paddle.segments[0]; const headRadius = head.radius * config.paddle.headRadiusMultiplier; const distX = head.x - food.x; const distY = head.y - food.y;
             if (Math.sqrt(distX * distX + distY * distY) < headRadius + food.size) {
                 food.status = 0; score += 10;
-                if (food.type === 'thickness') {
-                    paddle.segmentRadius = Math.min(config.paddle.maxSegmentRadius, paddle.segmentRadius + 2);
-                    paddle.segments.forEach(seg => seg.radius = paddle.segmentRadius);
-                    createParticles(food.x, food.y, '#4a90e2', 25);
-                } else {
-                    const lastSegment = paddle.segments[paddle.segments.length - 1];
-                    for (let i = 0; i < config.paddle.growthFactor * 2; i++) {
-                        paddle.segments.push({ x: lastSegment.x, y: lastSegment.y, radius: paddle.segmentRadius });
-                    }
-                    createParticles(food.x, food.y, '#00ff00', 20);
+                let newColor;
+                const foodColor = { growth: '#00ff00', thickness: '#4a90e2', split: '#ffff00', explosive: '#ff4444', penalty_speed: '#333333' }[food.type];
+
+                switch(food.type) {
+                    case 'thickness':
+                        paddle.segmentRadius = Math.min(config.paddle.maxSegmentRadius, paddle.segmentRadius + 2);
+                        paddle.segments.forEach(seg => seg.radius = paddle.segmentRadius);
+                        createDirectedParticles(food.x, food.y, head.x, head.y, foodColor, 20);
+                        break;
+                    case 'growth':
+                        const lastSegment = paddle.segments[paddle.segments.length - 1];
+                        for (let i = 0; i < config.paddle.growthFactor * 2; i++) { paddle.segments.push({ x: lastSegment.x, y: lastSegment.y, radius: paddle.segmentRadius }); }
+                        createDirectedParticles(food.x, food.y, head.x, head.y, foodColor, 20);
+                        break;
+                    case 'split':
+                        const newBalls = [];
+                        balls.forEach(ball => { const newBall = { ...ball, dx: -ball.dx, history: [] }; newBalls.push(newBall); });
+                        balls.push(...newBalls);
+                        newColor = foodColor;
+                        break;
+                    case 'explosive':
+                        powerUpTimers.explosive = 10;
+                        balls.forEach(ball => { ball.isExplosive = true; ball.sizeMultiplier = 2; });
+                        newColor = foodColor;
+                        break;
+                    case 'penalty_speed':
+                        powerUpTimers.penalty_speed = 10;
+                        balls.forEach(ball => { ball.dx *= 1.5; ball.dy *= 1.5; ball.hasWhiteBorder = true; });
+                        newColor = foodColor;
+                        break;
                 }
+                if (newColor) balls.forEach(ball => ball.color = newColor);
             }
         }
     }
@@ -427,27 +434,33 @@
 
         gameTimer += deltaTime;
 
+        if (powerUpTimers.explosive > 0) {
+            powerUpTimers.explosive -= deltaTime;
+            if (powerUpTimers.explosive <= 0) {
+                balls.forEach(ball => { ball.isExplosive = false; ball.sizeMultiplier = 1; });
+            }
+        }
+        if (powerUpTimers.penalty_speed > 0) {
+            powerUpTimers.penalty_speed -= deltaTime;
+            if (powerUpTimers.penalty_speed <= 0) {
+                balls.forEach(ball => { ball.dx /= 1.5; ball.dy /= 1.5; ball.hasWhiteBorder = false; });
+            }
+        }
+        
         if (gameTimer - lastSpeedUpTime >= 20) {
             speedUpCount++;
-            ball.dx *= 1.1;
-            ball.dy *= 1.1;
-
+            balls.forEach(ball => { ball.dx *= 1.1; ball.dy *= 1.1; });
             const progress = Math.min(1, speedUpCount / 7);
-            const r = Math.floor(0 + progress * 255);
-            const g = Math.floor(255 - progress * 255);
-            const b = Math.floor(255 - progress * 255);
-            ball.color = `rgb(${r}, ${g}, ${b})`;
-            
+            const r = Math.floor(0 + progress * 255); const g = Math.floor(255 - progress * 255); const b = Math.floor(255 - progress * 255);
+            balls.forEach(ball => ball.color = `rgb(${r}, ${g}, ${b})`);
             lastSpeedUpTime = gameTimer;
         }
         
         const head = paddle.segments[0];
-        
         if (!inputLocked) {
             const headRadius = head.radius * config.paddle.headRadiusMultiplier;
             if (isMouseDown || isTouchDown) {
-                head.x = inputTarget.x;
-                head.y = inputTarget.y;
+                head.x = inputTarget.x; head.y = inputTarget.y;
             } else {
                 if (keysDown['ArrowLeft'] || keysDown['a']) head.x -= PADDLE_KEYBOARD_SPEED;
                 if (keysDown['ArrowRight'] || keysDown['d']) head.x += PADDLE_KEYBOARD_SPEED;
@@ -460,61 +473,58 @@
 
         for (let i = 1; i < paddle.segments.length; i++) { const leader = paddle.segments[i - 1]; const follower = paddle.segments[i]; const dx = leader.x - follower.x; const dy = leader.y - follower.y; const distance = Math.sqrt(dx * dx + dy * dy); const targetDistance = (leader.radius + follower.radius) * 0.8; if (distance > targetDistance) { follower.x += (dx / distance) * (distance - targetDistance); follower.y += (dy / distance) * (distance - targetDistance); } }
         if (food.status === 1) { food.x += food.dx; food.y += food.dy; if (food.x - food.size < 0 || food.x + food.size > canvas.width) food.dx *= -1; if (food.y - food.size < config.playAreaY || food.y + food.size > canvas.height) food.dy *= -1; }
-        if (!ball.visible) return;
         
-        ball.history.push({ x: ball.x, y: ball.y });
-        if (ball.history.length > 10) {
-            ball.history.shift();
-        }
+        for (let i = balls.length - 1; i >= 0; i--) {
+            const ball = balls[i];
+            if (!ball.visible) continue;
+        
+            ball.history.push({ x: ball.x, y: ball.y });
+            if (ball.history.length > 10) ball.history.shift();
 
-        ball.dy += GRAVITY;
-        ball.x += ball.dx; ball.y += ball.dy;
+            ball.dy += GRAVITY;
+            ball.x += ball.dx; ball.y += ball.dy;
 
-        const currentSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
-        if (currentSpeed < MIN_BALL_SPEED && currentSpeed > 0) {
-            const scale = MIN_BALL_SPEED / currentSpeed;
-            ball.dx *= scale;
-            ball.dy *= scale;
-        }
-
-        if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) { ball.dx *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
-        if (ball.y - ball.radius < 0) { ball.dy *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
-        if (ball.y + ball.radius > canvas.height) {
-            lives--;
-            createParticles(ball.x, canvas.height - 5, '#ff4444', 40, 60, 6);
-            if (lives <= 0) {
-                gameState = 'gameOver';
-            } else {
-                resetPaddle();
-                resetBall();
-                lockInput(1000);
+            const currentSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+            if (currentSpeed < MIN_BALL_SPEED && currentSpeed > 0) {
+                const scale = MIN_BALL_SPEED / currentSpeed;
+                ball.dx *= scale; ball.dy *= scale;
             }
-        }
-        
-        paddle.segments.forEach(segment => {
-            const dx = ball.x - segment.x;
-            const dy = ball.y - segment.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            const segmentEffectiveRadius = segment.radius * (segment === paddle.segments[0] ? config.paddle.headRadiusMultiplier : 1);
+
+            const currentRadius = ball.radius * ball.sizeMultiplier;
+            if (ball.x + currentRadius > canvas.width || ball.x - currentRadius < 0) { ball.dx *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
+            if (ball.y - currentRadius < 0) { ball.dy *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
             
-            if (distance < ball.radius + segmentEffectiveRadius) {
-                const overlap = (ball.radius + segmentEffectiveRadius) - distance;
-                const normalX = dx / distance;
-                const normalY = dy / distance;
-
-                ball.x += normalX * overlap;
-                ball.y += normalY * overlap;
-                
-                const dotProduct = ball.dx * normalX + ball.dy * normalY;
-                ball.dx -= 2 * dotProduct * normalX;
-                ball.dy -= 2 * dotProduct * normalY;
-
-                if (normalY > 0.1) {
-                    ball.dy -= PADDLE_BOOST;
+            // [수정] 남은 기회(lives) 차감 로직으로 변경
+            if (ball.y + currentRadius > canvas.height) {
+                balls.splice(i, 1);
+                createParticles(ball.x, canvas.height - 5, '#ff4444', 40, 60, 6);
+                if (balls.length === 0) { // 모든 공을 놓쳤을 때
+                    lives--;
+                    if (lives <= 0) {
+                        gameState = 'gameOver';
+                    } else {
+                        resetPaddle();
+                        resetBalls();
+                        lockInput(1000);
+                    }
                 }
             }
-        });
-
+        
+            paddle.segments.forEach(segment => {
+                const dx = ball.x - segment.x; const dy = ball.y - segment.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const segmentEffectiveRadius = segment.radius * (segment === paddle.segments[0] ? config.paddle.headRadiusMultiplier : 1);
+                if (distance < currentRadius + segmentEffectiveRadius) {
+                    const overlap = (currentRadius + segmentEffectiveRadius) - distance;
+                    const normalX = dx / distance; const normalY = dy / distance;
+                    ball.x += normalX * overlap; ball.y += normalY * overlap;
+                    const dotProduct = ball.dx * normalX + ball.dy * normalY;
+                    ball.dx -= 2 * dotProduct * normalX; ball.dy -= 2 * dotProduct * normalY;
+                    if (normalY > 0.1) { ball.dy -= PADDLE_BOOST; }
+                }
+            });
+        }
+        
         collisionDetection();
     }
 
@@ -533,7 +543,7 @@
                 nextStageBtn.style.display = 'block';
                 break;
             case 'win':
-                showMessage('축하합니다!<br><span class="clear-text" style="font-size: 28px;">모든 스테이지<br> 클리어!</span>');
+                showMessage('축하합니다!<br><span class="clear-text" style="font-size: 28px;">모든 스테이지 클리어!</span>');
                 createParticles(canvas.width * Math.random(), canvas.height * Math.random(), `hsl(${Math.random() * 360}, 100%, 70%)`, 1, 60, 10);
                 break;
             case 'gameOver': showMessage(`게임 오버!<br><span style="font-size: 24px;">최종 점수: ${score}</span>`); break;
