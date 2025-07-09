@@ -18,7 +18,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>스네이크 벽돌깨기 by k-ezst</title>
+    <title>스네이크 벽돌깨기</title>
     <style>
         html, body {
             width: 100%;
@@ -135,6 +135,18 @@
             cursor: pointer;
             opacity: 0.6;
         }
+        #copyright-footer {
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            color: #555;
+            z-index: 50;
+            /* [수정] 드래그 및 선택 방지 */
+            user-select: none;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -160,6 +172,10 @@
     <canvas id="gameCanvas" width="600" height="800"></canvas>
     <button id="debugNextStageBtn">Skip Stage</button>
 
+    <div id="copyright-footer">
+        <i>Copyright © 2025 k-ezst. All rights reserved.</i>
+    </div>
+
     <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -179,7 +195,7 @@
     let totalBricksInStage, destroyedBricks;
     let foodSpawner;
     let powerUpTimers = { explosive: 0, penalty_speed: 0 };
-    let movingBrickDirection = 1; // [수정] 벽돌 그룹의 이동 방향
+    let movingBrickDirection = 1;
     
     let inputLocked = false;
     let isMouseDown = false;
@@ -198,7 +214,7 @@
     const PADDLE_BOOST = 4.5;
     const MIN_BALL_SPEED = 3.5; 
     const PADDLE_KEYBOARD_SPEED = 8;
-    const BRICK_MOVE_SPEED = 0.5; // [수정] 벽돌 이동 속도
+    const BRICK_MOVE_SPEED = 0.5;
 
     const config = {
         ball: { radius: 10, speed: 6 },
@@ -246,7 +262,7 @@
         gameState = 'stageStart';
         setTimeout(() => gameState = 'playing', 1000);
 
-        movingBrickDirection = 1; // [수정] 움직이는 벽돌 방향 초기화
+        movingBrickDirection = 1;
         const { design, brickSize } = designData;
         const padding = 10;
         const totalBrickWidth = design[0].length * (brickSize.width + padding) - padding;
@@ -326,9 +342,10 @@
         }, isNewStage ? 500 : 1000);
     }
 
+    // --- 이벤트 리스너 영역 ---
     restartBtn.addEventListener('click', () => { if (gameState !== 'stageStart') resetGame(); });
     nextStageBtn.addEventListener('click', () => { gameState = 'playing'; stage++; resetPaddle(); lockInput(1000); setupStage(stage); nextStageBtn.style.display = 'none'; showMessage(''); });
-    debugNextStageBtn.addEventListener('click', () => { if (gameState === 'win' || gameState === 'gameOver') return; if (stage < stageDesigns.length) { stage++; resetPaddle(); lockInput(1000); setupStage(stage); nextStageBtn.style.display = 'none'; messageEl.parentElement.style.display = 'none'; } else { gameState = 'win'; } });
+    debugNextStageBtn.addEventListener('click', () => { if (stage < stageDesigns.length) { stage++; resetPaddle(); lockInput(1000); setupStage(stage); nextStageBtn.style.display = 'none'; messageEl.parentElement.style.display = 'none'; } else { gameState = 'win'; } });
     function getMousePos(canvas, evt) { const rect = canvas.getBoundingClientRect(); const scaleX = canvas.width / rect.width; const scaleY = canvas.height / rect.height; return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY }; }
     function getTouchPos(canvas, evt) { const rect = canvas.getBoundingClientRect(); const scaleX = canvas.width / rect.width; const scaleY = canvas.height / rect.height; const touchX = (evt.touches[0].clientX - rect.left) * scaleX; const touchY = (evt.touches[0].clientY - rect.top) * scaleY; return { x: touchX, y: touchY }; }
     canvas.addEventListener('mousedown', e => { if (gameState === 'start') { resetGame(); return; } isMouseDown = true; inputTarget = getMousePos(canvas, e); });
@@ -341,6 +358,7 @@
     window.addEventListener('keyup', e => { delete keysDown[e.key]; });
     window.addEventListener('blur', () => { isMouseDown = false; isTouchDown = false; for (const key in keysDown) { delete keysDown[key]; } });
 
+    // --- 그리기 함수 영역 ---
     function drawSeparator() { ctx.beginPath(); ctx.setLineDash([5, 15]); ctx.moveTo(0, config.playAreaY); ctx.lineTo(canvas.width, config.playAreaY); ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke(); ctx.setLineDash([]); ctx.closePath(); }
     
     function drawObjects() {
@@ -632,13 +650,14 @@
             }
 
             const currentRadius = ball.radius * ball.sizeMultiplier;
-            if (ball.x - currentRadius < 0) {
-                ball.dx = Math.abs(ball.dx);
+            
+            if (ball.x - currentRadius < 0 && ball.dx < 0) {
+                ball.dx *= -1;
                 ball.x = currentRadius;
                 createParticles(ball.x, ball.y, '#ffffff', 5);
             }
-            if (ball.x + currentRadius > canvas.width) {
-                ball.dx = -Math.abs(ball.dx);
+            if (ball.x + currentRadius > canvas.width && ball.dx > 0) {
+                ball.dx *= -1;
                 ball.x = canvas.width - currentRadius;
                 createParticles(ball.x, ball.y, '#ffffff', 5);
             }
