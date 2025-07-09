@@ -1,4 +1,19 @@
 <!DOCTYPE html>
+<!--
+  Copyright (c) 2025 k-ezst
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -58,7 +73,7 @@
             background-color: #dd4a4a;
         }
         #nextStageBtn {
-            top: 60%;
+            top: 70%;
             left: 50%;
             transform: translate(-50%, -50%);
             background-color: #4CAF50;
@@ -164,6 +179,7 @@
     let totalBricksInStage, destroyedBricks;
     let foodSpawner;
     let powerUpTimers = { explosive: 0, penalty_speed: 0 };
+    let movingBrickDirection = 1; // [수정] 벽돌 그룹의 이동 방향
     
     let inputLocked = false;
     let isMouseDown = false;
@@ -182,6 +198,7 @@
     const PADDLE_BOOST = 4.5;
     const MIN_BALL_SPEED = 3.5; 
     const PADDLE_KEYBOARD_SPEED = 8;
+    const BRICK_MOVE_SPEED = 0.5; // [수정] 벽돌 이동 속도
 
     const config = {
         ball: { radius: 10, speed: 6 },
@@ -193,16 +210,21 @@
     config.paddle.upperLimit = config.playAreaY + config.paddle.segmentRadius * config.paddle.headRadiusMultiplier + 10;
     
     const stageDesigns = [
-        { design: [[1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1],[0,1,1,1,1,1,1,1,0],[0,0,1,1,1,1,1,0,0],[0,0,0,1,1,1,0,0,0]], brickSize: { width: 55, height: 20 } },
-        { design: [[0,0,0,0,1,0,0,0,0],[0,0,0,1,1,1,0,0,0],[0,0,1,1,1,1,1,0,0],[0,1,1,1,1,1,1,1,0],[1,1,1,1,1,1,1,1,1]], brickSize: { width: 58, height: 22 } },
-        { design: [[1,1,1,1,1,1,1,1,1],[1,0,0,0,0,0,0,0,1],[1,0,1,1,1,1,1,0,1],[1,0,1,0,0,0,1,0,1],[1,0,1,1,1,1,1,0,1],[1,0,0,0,0,0,0,0,1],[1,1,1,1,1,1,1,1,1]], brickSize: { width: 55, height: 18 } },
-        { design: [[0,1,1,0,0,0,1,1,0],[0,1,1,0,0,0,1,1,0],[0,0,0,0,0,0,0,0,0],[1,0,0,0,0,0,0,0,1],[0,1,0,0,0,0,0,1,0],[0,0,1,1,1,1,1,0,0]], brickSize: { width: 55, height: 20 } },
-        { design: [[0,0,1,0,0,0,1,0,0],[0,0,1,0,0,0,1,0,0],[1,1,1,1,1,1,1,1,1],[0,0,1,0,0,0,1,0,0],[0,0,1,0,0,0,1,0,0]], brickSize: { width: 55, height: 20 } },
-        { design: [[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1]], brickSize: { width: 55, height: 18 } },
-        { design: [[1,0,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0],[0,0,0,0,0,1,0,0,0],[0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,0,1]], brickSize: { width: 50, height: 15 } },
-        { design: [[0,0,0,1,0,1,0,0,0],[0,0,1,1,1,1,1,0,0],[0,1,1,1,1,1,1,1,0],[1,1,1,1,1,1,1,1,1],[0,1,1,1,1,1,1,1,0],[0,0,1,1,1,1,1,0,0],[0,0,0,1,0,1,0,0,0]], brickSize: { width: 55, height: 18 } },
-        { design: [[1,0,1,0,1,0,1,0,1],[0,1,1,1,1,1,1,1,0],[1,1,0,1,1,1,0,1,1],[0,1,0,1,0,1,0,1,0],[1,1,0,0,0,0,0,1,1],[0,1,1,1,1,1,1,1,0],[1,0,1,1,1,1,1,0,1],[0,0,0,1,1,1,0,0,0],[0,0,0,0,1,0,0,0,0]], brickSize: { width: 55, height: 18 } },
-        { design: [[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1]], brickSize: { width: 45, height: 15 } }
+        { design: [[0,1,1,0,0,0,1,1,0],[1,1,1,1,0,1,1,1,1],[1,1,1,2,1,2,1,1,1],[0,1,1,1,1,1,1,1,0],[0,0,1,1,1,1,1,0,0],[0,0,0,1,1,1,0,0,0]], brickSize: { width: 55, height: 20 } },
+        { design: [[0,1,1,1,1,1,1,1,0],[1,1,2,1,1,1,2,1,1],[1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1],[1,0,1,0,1,0,1,0,1]], brickSize: { width: 58, height: 22 } },
+        { design: [[1,1,1,1,1,1,1,1,1],[1,0,0,0,2,0,0,0,1],[1,0,1,1,1,1,1,0,1],[1,0,1,0,0,0,1,0,1],[1,0,1,1,1,1,1,0,1],[1,0,0,0,2,0,0,0,1],[1,1,1,1,1,1,1,1,1]], brickSize: { width: 55, height: 18 } },
+        { design: [[2,1,1,0,0,0,1,1,2],[1,2,1,0,0,0,1,2,1],[0,0,0,0,0,0,0,0,0],[1,0,0,1,1,1,0,0,1],[0,1,0,0,2,0,0,1,0],[0,0,1,1,1,1,1,0,0]], brickSize: { width: 55, height: 20 } },
+        { design: [[0,0,1,1,1,1,1,0,0],[0,1,1,2,1,2,1,1,0],[1,1,2,1,1,1,2,1,1],[1,1,1,1,1,1,1,1,1],[0,1,0,1,1,1,0,1,0],[0,1,1,0,0,0,1,1,0]], brickSize: { width: 55, height: 20 } },
+        { design: [[1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,1,1,1],[0,1,1,1,1,1,1,1,0],[0,1,1,1,1,1,1,1,0],[0,2,0,1,1,1,0,2,0],[0,0,1,0,0,0,1,0,0],[0,0,0,1,1,1,0,0,0]], brickSize: { width: 55, height: 18 } },
+        { design: [[2,2,0,0,0,0,0,2,2],[2,1,2,0,0,0,2,1,2],[2,1,1,2,0,2,1,1,2],[2,1,0,1,2,1,0,1,2],[2,1,0,0,1,0,0,1,2],[2,0,0,0,1,0,0,0,2]], brickSize: { width: 50, height: 15 } },
+        { design: [[0,0,0,2,0,2,0,0,0],[0,0,1,2,1,2,1,0,0],[0,1,2,1,2,1,2,1,0],[2,1,1,1,1,1,1,1,2],[0,1,2,1,2,1,2,1,0],[0,0,1,2,1,2,1,0,0],[0,0,0,2,0,2,0,0,0]], brickSize: { width: 55, height: 18 } },
+        { design: [[2,0,1,0,2,0,1,0,2],[0,2,1,1,1,1,1,2,0],[1,1,2,1,1,1,2,1,1],[0,1,1,2,2,2,1,1,0],[2,1,1,2,0,2,1,1,2],[0,1,1,2,2,2,1,1,0],[1,1,2,1,1,1,2,1,1],[0,2,1,1,1,1,1,2,0],[2,0,1,0,2,0,1,0,2]], brickSize: { width: 55, height: 18 } },
+        { design: [[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2]], brickSize: { width: 45, height: 15 } },
+        { design: [[1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,1,1,1],[0,1,1,1,1,1,1,1,0],[0,1,1,1,1,1,1,1,0],[0,2,0,1,1,1,0,2,0],[0,0,1,0,0,0,1,0,0],[0,0,0,1,1,1,0,0,0]], brickSize: { width: 55, height: 18 }, moving: true },
+        { design: [[2,2,0,0,0,0,0,2,2],[2,1,2,0,0,0,2,1,2],[2,1,1,2,0,2,1,1,2],[2,1,0,1,2,1,0,1,2],[2,1,0,0,1,0,0,1,2],[2,0,0,0,1,0,0,0,2]], brickSize: { width: 50, height: 15 }, moving: true },
+        { design: [[0,0,0,2,0,2,0,0,0],[0,0,1,2,1,2,1,0,0],[0,1,2,1,2,1,2,1,0],[2,1,1,1,1,1,1,1,2],[0,1,2,1,2,1,2,1,0],[0,0,1,2,1,2,1,0,0],[0,0,0,2,0,2,0,0,0]], brickSize: { width: 55, height: 18 }, moving: true },
+        { design: [[2,0,1,0,2,0,1,0,2],[0,2,1,1,1,1,1,2,0],[1,1,2,1,1,1,2,1,1],[0,1,1,2,2,2,1,1,0],[2,1,1,2,0,2,1,1,2],[0,1,1,2,2,2,1,1,0],[1,1,2,1,1,1,2,1,1],[0,2,1,1,1,1,1,2,0],[2,0,1,0,2,0,1,0,2]], brickSize: { width: 55, height: 18 }, moving: true },
+        { design: [[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2],[1,2,1,2,1,2,1,2,1],[2,1,2,1,2,1,2,1,2]], brickSize: { width: 45, height: 15 }, moving: true },
     ];
 
     class Particle { constructor(x, y, color, life = 30, speed = 4) { this.x = x; this.y = y; this.color = color; this.size = Math.random() * 3 + 2; this.life = life + Math.random() * life; this.initialLife = this.life; this.vx = (Math.random() - 0.5) * speed; this.vy = (Math.random() - 0.5) * speed; } update() { this.x += this.vx; this.y += this.vy; this.life--; } draw() { ctx.globalAlpha = Math.max(0, this.life / this.initialLife); ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0; } }
@@ -218,7 +240,42 @@
             particles.push(p);
         }
     }
-    function setupStage(level) { const designData = stageDesigns[level - 1]; if (!designData) { gameState = 'win'; return; } gameState = 'stageStart'; setTimeout(() => gameState = 'playing', 1000); const { design, brickSize } = designData; const padding = 10; const totalBrickWidth = design[0].length * (brickSize.width + padding) - padding; const offsetLeft = (canvas.width - totalBrickWidth) / 2; bricks = []; totalBricksInStage = 0; destroyedBricks = 0; for (let r = 0; r < design.length; r++) { for (let c = 0; c < design[r].length; c++) { if (design[r][c] === 1) { const brickX = c * (brickSize.width + padding) + offsetLeft; const brickY = r * (brickSize.height + padding) + config.brickOffsetTop; bricks.push({ x: brickX, y: brickY, w: brickSize.width, h: brickSize.height, status: 1, color: `hsl(${r * 40}, 90%, 60%)` }); totalBricksInStage++; } } } resetBalls(true); }
+    function setupStage(level) {
+        const designData = stageDesigns[level - 1];
+        if (!designData) { gameState = 'win'; return; }
+        gameState = 'stageStart';
+        setTimeout(() => gameState = 'playing', 1000);
+
+        movingBrickDirection = 1; // [수정] 움직이는 벽돌 방향 초기화
+        const { design, brickSize } = designData;
+        const padding = 10;
+        const totalBrickWidth = design[0].length * (brickSize.width + padding) - padding;
+        const offsetLeft = (canvas.width - totalBrickWidth) / 2;
+        bricks = [];
+        totalBricksInStage = 0;
+        destroyedBricks = 0;
+
+        for (let r = 0; r < design.length; r++) {
+            for (let c = 0; c < design[r].length; c++) {
+                if (design[r][c] > 0) {
+                    const brickX = c * (brickSize.width + padding) + offsetLeft;
+                    const brickY = r * (brickSize.height + padding) + config.brickOffsetTop;
+                    const isMetal = design[r][c] === 2;
+                    bricks.push({
+                        x: brickX, y: brickY, w: brickSize.width, h: brickSize.height,
+                        status: 1,
+                        type: isMetal ? 'metal' : 'normal',
+                        health: isMetal ? 3 : 1,
+                        shake: 0,
+                        color: `hsl(${r * 40}, 90%, 60%)`,
+                        isMoving: designData.moving || false
+                    });
+                    totalBricksInStage++;
+                }
+            }
+        }
+        resetBalls(true);
+    }
     function resetPaddle() {
         paddle.segmentRadius = config.paddle.segmentRadius;
         paddle.segments = [];
@@ -240,6 +297,7 @@
         particles = [];
         gameTimer = 0; lastSpeedUpTime = 0; speedUpCount = 0;
         powerUpTimers = { explosive: 0, penalty_speed: 0 };
+        movingBrickDirection = 1;
 
         if (foodSpawner) clearInterval(foodSpawner);
         foodSpawner = setInterval(() => { if (food.status === 0 && gameState === 'playing') { spawnFood(); } }, 6000);
@@ -250,7 +308,7 @@
         balls = [];
         powerUpTimers = { explosive: 0, penalty_speed: 0 };
         const newBall = {
-            x: canvas.width / 2, y: canvas.height / 2 + 50,
+            x: canvas.width / 2, y: canvas.height / 2,
             radius: config.ball.radius, dx: 0, dy: 0,
             visible: false, color: '#00ffff', history: [],
             isExplosive: false, sizeMultiplier: 1, hasWhiteBorder: false
@@ -261,8 +319,6 @@
         lastSpeedUpTime = gameTimer; 
 
         setTimeout(() => {
-            const head = paddle.segments[0];
-            newBall.x = head.x; newBall.y = head.y - newBall.radius - 1;
             const launchAngle = (Math.random() * (Math.PI / 2)) + (Math.PI / 4);
             newBall.dx = config.ball.speed * Math.cos(launchAngle);
             newBall.dy = -config.ball.speed * Math.sin(launchAngle);
@@ -270,7 +326,6 @@
         }, isNewStage ? 500 : 1000);
     }
 
-    // --- 이벤트 리스너 영역 ---
     restartBtn.addEventListener('click', () => { if (gameState !== 'stageStart') resetGame(); });
     nextStageBtn.addEventListener('click', () => { gameState = 'playing'; stage++; resetPaddle(); lockInput(1000); setupStage(stage); nextStageBtn.style.display = 'none'; showMessage(''); });
     debugNextStageBtn.addEventListener('click', () => { if (gameState === 'win' || gameState === 'gameOver') return; if (stage < stageDesigns.length) { stage++; resetPaddle(); lockInput(1000); setupStage(stage); nextStageBtn.style.display = 'none'; messageEl.parentElement.style.display = 'none'; } else { gameState = 'win'; } });
@@ -286,7 +341,6 @@
     window.addEventListener('keyup', e => { delete keysDown[e.key]; });
     window.addEventListener('blur', () => { isMouseDown = false; isTouchDown = false; for (const key in keysDown) { delete keysDown[key]; } });
 
-    // --- 그리기 함수 영역 ---
     function drawSeparator() { ctx.beginPath(); ctx.setLineDash([5, 15]); ctx.moveTo(0, config.playAreaY); ctx.lineTo(canvas.width, config.playAreaY); ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke(); ctx.setLineDash([]); ctx.closePath(); }
     
     function drawObjects() {
@@ -320,19 +374,53 @@
                 case 'penalty_speed': foodColor = '#333333'; break;
             }
             ctx.beginPath(); ctx.arc(food.x, food.y, food.size, 0, Math.PI * 2); ctx.fillStyle = foodColor; ctx.shadowColor = foodColor; ctx.shadowBlur = 15; ctx.fill();
-            // [수정] 검은 먹이일 때 흰 테두리 추가
             if (food.type === 'penalty_speed') {
                 ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
             }
             ctx.closePath(); ctx.shadowBlur = 0;
             createParticles(food.x, food.y, foodColor, 1, 20, 1);
         }
-        bricks.forEach(b => { if (b.status === 1) { ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.fillStyle = b.color; ctx.fill(); ctx.closePath(); } });
+        bricks.forEach(b => { 
+            if (b.status === 1) {
+                let x = b.x, y = b.y;
+                if(b.shake > 0){
+                    x += (Math.random() - 0.5) * 4;
+                    y += (Math.random() - 0.5) * 4;
+                    b.shake--;
+                }
+                
+                if (b.type === 'metal') {
+                    const baseGray = 60 + b.health * 30;
+                    const lightGray = baseGray + 60;
+                    const gradient = ctx.createLinearGradient(x, y, x, y + b.h);
+                    gradient.addColorStop(0, `rgb(${lightGray}, ${lightGray}, ${lightGray})`);
+                    gradient.addColorStop(0.5, `rgb(${baseGray}, ${baseGray}, ${baseGray})`);
+                    gradient.addColorStop(1, `rgb(${lightGray}, ${lightGray}, ${lightGray})`);
+                    ctx.fillStyle = gradient;
+                } else {
+                    ctx.fillStyle = b.color;
+                }
+
+                ctx.beginPath(); ctx.rect(x, y, b.w, b.h); ctx.fill(); ctx.closePath();
+                
+                if (b.type === 'metal' && b.health < 3) {
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    if (b.health <= 2) {
+                        ctx.moveTo(x + b.w * 0.3, y + b.h * 0.2); ctx.lineTo(x + b.w * 0.5, y + b.h * 0.5); ctx.lineTo(x + b.w * 0.7, y + b.h * 0.3); ctx.moveTo(x + b.w * 0.5, y + b.h * 0.5); ctx.lineTo(x + b.w * 0.4, y + b.h * 0.8);
+                    }
+                    if (b.health <= 1) {
+                        ctx.moveTo(x + b.w * 0.8, y + b.h * 0.1); ctx.lineTo(x + b.w * 0.6, y + b.h * 0.4); ctx.lineTo(x + b.w * 0.5, y + b.h * 0.5); ctx.moveTo(x + b.w * 0.6, y + b.h * 0.4); ctx.lineTo(x + b.w * 0.7, y + b.h * 0.6);
+                    }
+                    ctx.stroke();
+                }
+            }
+        });
     }
     function drawParticles() { particles.forEach((p, i) => { p.update(); p.draw(); if (p.life <= 0) particles.splice(i, 1); }); }
     function drawInfo() { stageValEl.textContent = stage; scoreValEl.textContent = score; livesValEl.textContent = lives; }
 
-    // --- 게임 로직 함수 영역 ---
     function spawnFood() {
         food.status = 1;
         const rand = Math.random();
@@ -357,20 +445,26 @@
                     let distX = ball.x - testX; let distY = ball.y - testY;
                     let distance = Math.sqrt((distX * distX) + (distY * distY));
                     if (distance <= currentRadius) {
-                        b.status = 0; score++; destroyedBricks++;
-                        createParticles(ball.x, ball.y, b.color, 15);
+                        b.health--;
+                        b.shake = 10;
+                        if(b.health <= 0) {
+                            b.status = 0; score++; destroyedBricks++;
+                            createParticles(ball.x, ball.y, b.type === 'metal' ? '#ccc' : b.color, 20);
+                        } else {
+                            createParticles(ball.x, ball.y, '#aaa', 5);
+                        }
                         
                         if (ball.isExplosive) {
                             const splashRadius = 75;
                             createParticles(ball.x, ball.y, '#ff8800', 50, 60, 8);
                             bricks.forEach(otherBrick => {
-                                if (otherBrick.status === 1) {
+                                if (otherBrick.status === 1 && otherBrick !== b) {
                                     const brickCenterX = otherBrick.x + otherBrick.w / 2;
                                     const brickCenterY = otherBrick.y + otherBrick.h / 2;
                                     const splashDist = Math.sqrt(Math.pow(brickCenterX - ball.x, 2) + Math.pow(brickCenterY - ball.y, 2));
                                     if (splashDist < splashRadius) {
                                         otherBrick.status = 0; score++; destroyedBricks++;
-                                        createParticles(brickCenterX, brickCenterY, otherBrick.color, 10);
+                                        createParticles(brickCenterX, brickCenterY, otherBrick.type === 'metal' ? '#ccc' : otherBrick.color, 10);
                                     }
                                 }
                             });
@@ -387,7 +481,7 @@
         }
 
         if (totalBricksInStage > 0 && destroyedBricks >= totalBricksInStage) {
-            if (stage === stageDesigns.length) { gameState = 'win'; } else { gameState = 'stageCleared'; }
+            if (stage >= stageDesigns.length) { gameState = 'win'; } else { gameState = 'stageCleared'; }
             totalBricksInStage = -1;
         }
 
@@ -430,6 +524,33 @@
             }
         }
     }
+    
+    function updateBricks() {
+        let minX = canvas.width, maxX = 0;
+        let isAnyBrickMoving = false;
+        bricks.forEach(brick => {
+            if (brick.isMoving && brick.status === 1) {
+                isAnyBrickMoving = true;
+                minX = Math.min(minX, brick.x);
+                maxX = Math.max(maxX, brick.x + brick.w);
+            }
+        });
+
+        if (!isAnyBrickMoving) return;
+
+        if (maxX >= canvas.width && movingBrickDirection === 1) {
+            movingBrickDirection = -1;
+        }
+        if (minX <= 0 && movingBrickDirection === -1) {
+            movingBrickDirection = 1;
+        }
+
+        bricks.forEach(brick => {
+            if (brick.isMoving && brick.status === 1) {
+                brick.x += movingBrickDirection * BRICK_MOVE_SPEED;
+            }
+        });
+    }
 
     function update(timestamp) {
         if (!lastFrameTime) lastFrameTime = timestamp;
@@ -438,6 +559,7 @@
 
         if (gameState !== 'playing') return;
 
+        updateBricks();
         gameTimer += deltaTime;
 
         if (powerUpTimers.explosive > 0) {
@@ -510,8 +632,22 @@
             }
 
             const currentRadius = ball.radius * ball.sizeMultiplier;
-            if (ball.x + currentRadius > canvas.width || ball.x - currentRadius < 0) { ball.dx *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
-            if (ball.y - currentRadius < 0) { ball.dy *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
+            if (ball.x - currentRadius < 0) {
+                ball.dx = Math.abs(ball.dx);
+                ball.x = currentRadius;
+                createParticles(ball.x, ball.y, '#ffffff', 5);
+            }
+            if (ball.x + currentRadius > canvas.width) {
+                ball.dx = -Math.abs(ball.dx);
+                ball.x = canvas.width - currentRadius;
+                createParticles(ball.x, ball.y, '#ffffff', 5);
+            }
+            
+            if (ball.y - currentRadius < 0 && ball.dy < 0) {
+                ball.dy *= -1;
+                if (ball.dy < 1) ball.dy = 1;
+                createParticles(ball.x, ball.y, '#ffffff', 5);
+            }
             
             if (ball.y + currentRadius > canvas.height) {
                 balls.splice(i, 1);
@@ -540,7 +676,6 @@
                     ball.dx -= 2 * dotProduct * normalX; ball.dy -= 2 * dotProduct * normalY;
                     if (normalY > 0.1) {
                         ball.dy -= PADDLE_BOOST;
-                        // [버그 수정] 공 끼임 방지: 충돌 후 수평 속도가 너무 낮으면, 임의의 힘을 가해 탈출시킴
                         if (Math.abs(ball.dx) < 0.5) {
                             ball.dx += (ball.x < canvas.width / 2) ? 0.5 : -0.5;
                         }
