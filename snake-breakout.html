@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>스네이크 벽돌깨기 (최종 완성 버전)</title>
+    <style>
+        body {
+            background-color: #121212;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Malgun Gothic', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+        canvas {
+            background: #282828;
+            border-radius: 10px;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.6);
+            display: block;
+            max-width: 100vw;
+            max-height: 100vh;
+            margin: auto;
+            object-fit: contain;
+            cursor: pointer;
+        }
+        #messageContainer {
+            position: absolute;
+            left: 50%;
+            top: 40%;
+            transform: translateX(-50%);
+            color: #eee;
+            text-align: center;
+            text-shadow: 0 0 5px #000;
+            transition: all 0.3s ease;
+            z-index: 10;
+            font-size: 40px;
+            line-height: 1.4;
+        }
+        #restartBtn, #nextStageBtn {
+            position: absolute;
+            z-index: 20;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            color: white;
+            font-size: 18px;
+            padding: 10px 20px;
+        }
+        #restartBtn {
+            top: 25px;
+            right: 20px;
+            background-color: #dd4a4a;
+        }
+        #nextStageBtn {
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #4CAF50;
+            font-size: 24px;
+            padding: 15px 30px;
+        }
+        #info-panel {
+            top: 20px;
+            left: 20px;
+            transform: none;
+            position: absolute;
+            display: flex;
+            gap: 15px; 
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            color: #eee;
+        }
+        .info-item .label {
+            color: #aaa;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        .info-item .value {
+            font-size: 20px;
+            font-weight: bold;
+            min-width: 30px;
+            text-align: center;
+        }
+
+        .clear-text {
+            font-weight: bold;
+            color: #00ffcc;
+            animation: glow 1.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+            from {
+                text-shadow: 0 0 10px #fff, 0 0 20px #00ffcc, 0 0 30px #00ffcc;
+            }
+            to {
+                text-shadow: 0 0 20px #fff, 0 0 30px #00aaff, 0 0 40px #00aaff;
+            }
+        }
+
+        #debugNextStageBtn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 50;
+            background-color: #555;
+            color: white;
+            border: 1px solid #888;
+            border-radius: 5px;
+            padding: 5px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+    <div id="info-panel">
+        <div class="info-item">
+            <span class="label">스테이지</span>
+            <span id="stage-value" class="value">1</span>
+        </div>
+        <div class="info-item">
+            <span class="label">점수</span>
+            <span id="score-value" class="value">0</span>
+        </div>
+        <div class="info-item">
+            <span class="label">목숨</span>
+            <span id="lives-value" class="value">3</span>
+        </div>
+    </div>
+    <div id="messageContainer">
+        <span id="message"></span>
+    </div>
+    <button id="restartBtn">재시작</button>
+    <button id="nextStageBtn" style="display: none;">다음 스테이지</button>
+    <canvas id="gameCanvas" width="600" height="800"></canvas>
+
+    <button id="debugNextStageBtn">Skip Stage</button>
+
+    <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restartBtn');
+    const nextStageBtn = document.getElementById('nextStageBtn');
+    const debugNextStageBtn = document.getElementById('debugNextStageBtn');
+    const stageValEl = document.getElementById('stage-value');
+    const scoreValEl = document.getElementById('score-value');
+    const livesValEl = document.getElementById('lives-value');
+
+    let gameState = 'start';
+    let ball, paddle, bricks, food;
+    let particles = [];
+    let score, lives, stage;
+    let totalBricksInStage, destroyedBricks;
+    let touchTarget = null;
+    let foodSpawner;
+    
+    let inputLocked = false;
+    let gameTimer = 0;
+    let lastSpeedUpTime = 0;
+    let speedUpCount = 0;
+    let lastFrameTime = 0;
+
+    const keysDown = {}; // [조작 추가] 현재 눌린 키를 저장하는 객체
+
+    const TOUCH_OFFSET_BASE = { x: -30, y: -60 };
+    const GRAVITY = 0.02; 
+    const PADDLE_BOOST = 4.5;
+    const MIN_BALL_SPEED = 3.5;
+    const PADDLE_KEYBOARD_SPEED = 8; // [조작 추가] 키보드 이동 속도
+
+    const config = {
+        ball: { radius: 10, speed: 6 },
+        paddle: { initialSegmentCount: 15, segmentRadius: 8, growthFactor: 1, headRadiusMultiplier: 1.5, maxSegmentRadius: 14 },
+        food: { size: 15, speed: 1.8 },
+        playAreaY: 150,
+        brickOffsetTop: 30
+    };
+    config.paddle.upperLimit = config.playAreaY + config.paddle.segmentRadius * config.paddle.headRadiusMultiplier + 10;
+    
+    const stageDesigns = [
+        { design: [[1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1],[0,1,1,1,1,1,1,1,0],[0,0,1,1,1,1,1,0,0],[0,0,0,1,1,1,0,0,0]], brickSize: { width: 55, height: 20 } },
+        { design: [[0,0,0,0,1,0,0,0,0],[0,0,0,1,1,1,0,0,0],[0,0,1,1,1,1,1,0,0],[0,1,1,1,1,1,1,1,0],[1,1,1,1,1,1,1,1,1]], brickSize: { width: 58, height: 22 } },
+        { design: [[1,1,1,1,1,1,1,1,1],[1,0,0,0,0,0,0,0,1],[1,0,1,1,1,1,1,0,1],[1,0,1,0,0,0,1,0,1],[1,0,1,1,1,1,1,0,1],[1,0,0,0,0,0,0,0,1],[1,1,1,1,1,1,1,1,1]], brickSize: { width: 55, height: 18 } },
+        { design: [[0,1,1,0,0,0,1,1,0],[0,1,1,0,0,0,1,1,0],[0,0,0,0,0,0,0,0,0],[1,0,0,0,0,0,0,0,1],[0,1,0,0,0,0,0,1,0],[0,0,1,1,1,1,1,0,0]], brickSize: { width: 55, height: 20 } },
+        { design: [[0,0,1,0,0,0,1,0,0],[0,0,1,0,0,0,1,0,0],[1,1,1,1,1,1,1,1,1],[0,0,1,0,0,0,1,0,0],[0,0,1,0,0,0,1,0,0]], brickSize: { width: 55, height: 20 } },
+        { design: [[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1]], brickSize: { width: 55, height: 18 } },
+        { design: [[1,0,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0],[0,0,0,0,0,1,0,0,0],[0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,0,1]], brickSize: { width: 50, height: 15 } },
+        { design: [[0,0,0,1,0,1,0,0,0],[0,0,1,1,1,1,1,0,0],[0,1,1,1,1,1,1,1,0],[1,1,1,1,1,1,1,1,1],[0,1,1,1,1,1,1,1,0],[0,0,1,1,1,1,1,0,0],[0,0,0,1,0,1,0,0,0]], brickSize: { width: 55, height: 18 } },
+        { design: [[1,0,1,0,1,0,1,0,1],[0,1,1,1,1,1,1,1,0],[1,1,0,1,1,1,0,1,1],[0,1,0,1,0,1,0,1,0],[1,1,0,0,0,0,0,1,1],[0,1,1,1,1,1,1,1,0],[1,0,1,1,1,1,1,0,1],[0,0,0,1,1,1,0,0,0],[0,0,0,0,1,0,0,0,0]], brickSize: { width: 55, height: 18 } },
+        { design: [[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1,0],[1,0,1,0,1,0,1,0,1]], brickSize: { width: 45, height: 15 } }
+    ];
+
+    class Particle { constructor(x, y, color, life = 30, speed = 4) { this.x = x; this.y = y; this.color = color; this.size = Math.random() * 3 + 2; this.life = life + Math.random() * life; this.initialLife = this.life; this.vx = (Math.random() - 0.5) * speed; this.vy = (Math.random() - 0.5) * speed; } update() { this.x += this.vx; this.y += this.vy; this.life--; } draw() { ctx.globalAlpha = Math.max(0, this.life / this.initialLife); ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0; } }
+    function createParticles(x, y, color, count, life, speed) { for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color, life, speed)); }
+    function setupStage(level) { const designData = stageDesigns[level - 1]; if (!designData) { gameState = 'win'; return; } gameState = 'stageStart'; setTimeout(() => gameState = 'playing', 1000); const { design, brickSize } = designData; const padding = 10; const totalBrickWidth = design[0].length * (brickSize.width + padding) - padding; const offsetLeft = (canvas.width - totalBrickWidth) / 2; bricks = []; totalBricksInStage = 0; destroyedBricks = 0; for (let r = 0; r < design.length; r++) { for (let c = 0; c < design[r].length; c++) { if (design[r][c] === 1) { const brickX = c * (brickSize.width + padding) + offsetLeft; const brickY = r * (brickSize.height + padding) + config.brickOffsetTop; bricks.push({ x: brickX, y: brickY, w: brickSize.width, h: brickSize.height, status: 1, color: `hsl(${r * 40}, 90%, 60%)` }); totalBricksInStage++; } } } resetBall(true); }
+    function resetPaddle() {
+        paddle.segmentRadius = config.paddle.segmentRadius;
+        paddle.segments = [];
+        const initialHeadX = canvas.width / 2;
+        const initialHeadY = canvas.height - 80;
+        for (let i = 0; i < config.paddle.initialSegmentCount; i++) {
+            paddle.segments.push({
+                x: initialHeadX,
+                y: initialHeadY + i * paddle.segmentRadius,
+                radius: config.paddle.segmentRadius
+            });
+        }
+    }
+    
+    function lockInput(duration) {
+        inputLocked = true;
+        setTimeout(() => {
+            inputLocked = false;
+        }, duration);
+    }
+
+    function resetGame() {
+        score = 0; lives = 3; stage = 1;
+        paddle = { segments: [], segmentRadius: config.paddle.segmentRadius, growthFactor: config.paddle.growthFactor, upperLimit: config.paddle.upperLimit };
+        resetPaddle();
+        food = { x: 0, y: 0, size: config.food.size, status: 0, dx: 0, dy: 0, type: 'growth' };
+        particles = [];
+        
+        gameTimer = 0;
+        lastSpeedUpTime = 0;
+        speedUpCount = 0;
+
+        if (foodSpawner) clearInterval(foodSpawner);
+        foodSpawner = setInterval(() => { if (food.status === 0 && gameState === 'playing') { spawnFood(); } }, 8000);
+        setupStage(stage);
+    }
+    
+    function resetBall(isNewStage = false) {
+        ball = { x: canvas.width / 2, y: canvas.height / 2 + 50, radius: config.ball.radius, dx: 0, dy: 0, visible: false, color: '#00ffff', history: [] };
+        speedUpCount = 0;
+        lastSpeedUpTime = gameTimer; 
+
+        setTimeout(() => {
+            const head = paddle.segments[0];
+            ball.x = head.x;
+            ball.y = head.y - head.radius - 1;
+            
+            const launchAngle = (Math.random() * (Math.PI / 2)) + (Math.PI / 4);
+            ball.dx = config.ball.speed * Math.cos(launchAngle);
+            ball.dy = -config.ball.speed * Math.sin(launchAngle);
+            
+            ball.visible = true;
+        }, isNewStage ? 500 : 1000);
+    }
+
+    // [조작 추가] 이벤트 리스너
+    restartBtn.addEventListener('click', () => { if (gameState !== 'stageStart') resetGame(); });
+    nextStageBtn.addEventListener('click', () => {
+        gameState = 'playing';
+        stage++;
+        resetPaddle();
+        lockInput(1000); 
+        setupStage(stage);
+        nextStageBtn.style.display = 'none';
+        showMessage('');
+    });
+    debugNextStageBtn.addEventListener('click', () => {
+        if (gameState === 'win' || gameState === 'gameOver') return;
+        if (stage < stageDesigns.length) {
+            stage++;
+            resetPaddle();
+            lockInput(1000);
+            setupStage(stage);
+            nextStageBtn.style.display = 'none';
+            messageEl.parentElement.style.display = 'none';
+        } else {
+            gameState = 'win';
+        }
+    });
+    function getMousePos(canvas, evt) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+            x: (evt.clientX - rect.left) * scaleX,
+            y: (evt.clientY - rect.top) * scaleY
+        };
+    }
+    // 터치 이벤트
+    function getTouchPos(canvas, evt) { const rect = canvas.getBoundingClientRect(); const scaleX = canvas.width / rect.width; const scaleY = canvas.height / rect.height; const touchX = (evt.touches[0].clientX - rect.left) * scaleX; const touchY = (evt.touches[0].clientY - rect.top) * scaleY; return { x: touchX, y: touchY }; }
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); if (gameState === 'start') { resetGame(); return; } if (gameState === 'playing') { touchTarget = getTouchPos(canvas, e); } });
+    canvas.addEventListener('touchmove', e => { e.preventDefault(); if (gameState === 'playing') { touchTarget = getTouchPos(canvas, e); } });
+    canvas.addEventListener('touchend', e => { e.preventDefault(); touchTarget = null; });
+    // 마우스 이벤트
+    canvas.addEventListener('mousemove', e => { if (gameState === 'playing') touchTarget = getMousePos(canvas, e); });
+    canvas.addEventListener('mouseout', () => { touchTarget = null; });
+    canvas.addEventListener('click', e => { if (gameState === 'start') resetGame(); });
+    // 키보드 이벤트
+    window.addEventListener('keydown', e => { keysDown[e.key] = true; });
+    window.addEventListener('keyup', e => { delete keysDown[e.key]; });
+
+
+    function drawSeparator() { ctx.beginPath(); ctx.setLineDash([5, 15]); ctx.moveTo(0, config.playAreaY); ctx.lineTo(canvas.width, config.playAreaY); ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.stroke(); ctx.setLineDash([]); ctx.closePath(); }
+    
+    function drawObjects() {
+        if (ball.visible && ball.history) {
+            const [r, g, b] = ball.color.match(/\d+/g) || ['0','255','255'];
+            ball.history.forEach((pos, index) => {
+                const opacity = (index / ball.history.length) * 0.4;
+                const radius = ball.radius * (index / ball.history.length);
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+                ctx.fill();
+            });
+        }
+        
+        if (ball.visible) { ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2); ctx.fillStyle = ball.color; ctx.shadowColor = ball.color; ctx.shadowBlur = 10; ctx.fill(); ctx.closePath(); ctx.shadowBlur = 0; }
+        paddle.segments.forEach((segment, index) => { const currentRadius = index === 0 ? segment.radius * config.paddle.headRadiusMultiplier : segment.radius; ctx.beginPath(); ctx.arc(segment.x, segment.y, currentRadius, 0, Math.PI * 2); ctx.fillStyle = index === 0 ? '#ff00ff' : '#cc00cc'; ctx.shadowColor = '#ff00ff'; ctx.shadowBlur = 15; ctx.fill(); ctx.closePath(); ctx.shadowBlur = 0; });
+        if (food.status === 1) {
+            const foodColor = food.type === 'thickness' ? '#4a90e2' : '#00ff00';
+            ctx.beginPath();
+            ctx.arc(food.x, food.y, food.size, 0, Math.PI * 2);
+            ctx.fillStyle = foodColor;
+            ctx.shadowColor = foodColor;
+            ctx.shadowBlur = 15;
+            ctx.fill();
+            ctx.closePath();
+            ctx.shadowBlur = 0;
+            createParticles(food.x + (Math.random() - 0.5) * food.size, food.y + (Math.random() - 0.5) * food.size, 'rgba(255,255,0,0.8)', 5, 15, 2);
+        }
+        bricks.forEach(b => { if (b.status === 1) { ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.fillStyle = b.color; ctx.fill(); ctx.closePath(); } });
+    }
+    function drawParticles() { particles.forEach((p, i) => { p.update(); p.draw(); if (p.life <= 0) particles.splice(i, 1); }); }
+    function drawInfo() { stageValEl.textContent = stage; scoreValEl.textContent = score; livesValEl.textContent = lives; }
+    function spawnFood() { food.status = 1; food.type = Math.random() < 0.3 ? 'thickness' : 'growth'; food.x = Math.random() * (canvas.width - food.size * 2) + food.size; food.y = Math.random() * (canvas.height - config.playAreaY - food.size * 2) + config.playAreaY + food.size; food.dx = (Math.random() - 0.5) * config.food.speed; food.dy = (Math.random() - 0.5) * config.food.speed; }
+    
+    function collisionDetection() {
+        bricks.forEach(b => {
+            if (b.status === 1) {
+                let testX = ball.x; let testY = ball.y;
+                if (ball.x < b.x) testX = b.x; else if (ball.x > b.x + b.w) testX = b.x + b.w;
+                if (ball.y < b.y) testY = b.y; else if (ball.y > b.y + b.h) testY = b.y + b.h;
+                let distX = ball.x - testX; let distY = ball.y - testY;
+                let distance = Math.sqrt((distX * distX) + (distY * distY));
+                if (distance <= ball.radius) {
+                    b.status = 0; score++; destroyedBricks++;
+                    createParticles(ball.x, ball.y, b.color, 15);
+                    const prevBallX = ball.x - ball.dx; const prevBallY = ball.y - ball.dy;
+                    const hitFromLeftOrRight = (prevBallX + ball.radius <= b.x && ball.x + ball.radius > b.x) || (prevBallX - ball.radius >= b.x + b.w && ball.x - ball.radius < b.x + b.w);
+                    const hitFromTopOrBottom = (prevBallY + ball.radius <= b.y && ball.y + ball.radius > b.y) || (prevBallY - ball.radius >= b.y + b.h && ball.y - ball.radius < b.y + b.h);
+                    if (hitFromLeftOrRight) ball.dx *= -1;
+                    if (hitFromTopOrBottom) ball.dy *= -1;
+                }
+            }
+        });
+
+        if (totalBricksInStage > 0 && destroyedBricks >= totalBricksInStage) {
+            if (stage === stageDesigns.length) { gameState = 'win'; } else { gameState = 'stageCleared'; }
+            totalBricksInStage = -1;
+        }
+
+        if (food.status === 1) {
+            const head = paddle.segments[0]; const headRadius = head.radius * config.paddle.headRadiusMultiplier; const distX = head.x - food.x; const distY = head.y - food.y;
+            if (Math.sqrt(distX * distX + distY * distY) < headRadius + food.size) {
+                food.status = 0; score += 10;
+                if (food.type === 'thickness') {
+                    paddle.segmentRadius = Math.min(config.paddle.maxSegmentRadius, paddle.segmentRadius + 2);
+                    paddle.segments.forEach(seg => seg.radius = paddle.segmentRadius);
+                    createParticles(food.x, food.y, '#4a90e2', 25);
+                } else {
+                    const lastSegment = paddle.segments[paddle.segments.length - 1];
+                    for (let i = 0; i < config.paddle.growthFactor * 2; i++) {
+                        paddle.segments.push({ x: lastSegment.x, y: lastSegment.y, radius: paddle.segmentRadius });
+                    }
+                    createParticles(food.x, food.y, '#00ff00', 20);
+                }
+            }
+        }
+    }
+
+    function update(timestamp) {
+        if (!lastFrameTime) lastFrameTime = timestamp;
+        const deltaTime = (timestamp - lastFrameTime) / 1000;
+        lastFrameTime = timestamp;
+
+        if (gameState !== 'playing') return;
+
+        gameTimer += deltaTime;
+
+        if (gameTimer - lastSpeedUpTime >= 20) {
+            speedUpCount++;
+            ball.dx *= 1.1;
+            ball.dy *= 1.1;
+
+            const progress = Math.min(1, speedUpCount / 7);
+            const r = Math.floor(0 + progress * 255);
+            const g = Math.floor(255 - progress * 255);
+            const b = Math.floor(255 - progress * 255);
+            ball.color = `rgb(${r}, ${g}, ${b})`;
+            
+            lastSpeedUpTime = gameTimer;
+        }
+        
+        const head = paddle.segments[0];
+        
+        // [조작 추가] 키보드 입력 처리
+        if (!inputLocked) {
+            if (keysDown['ArrowLeft'] || keysDown['a']) head.x -= PADDLE_KEYBOARD_SPEED;
+            if (keysDown['ArrowRight'] || keysDown['d']) head.x += PADDLE_KEYBOARD_SPEED;
+            if (keysDown['ArrowUp'] || keysDown['w']) head.y -= PADDLE_KEYBOARD_SPEED;
+            if (keysDown['ArrowDown'] || keysDown['s']) head.y += PADDLE_KEYBOARD_SPEED;
+        }
+
+        // [조작 추가] 마우스/터치 입력 처리 (키보드 입력을 덮어쓸 수 있음)
+        if (touchTarget && !inputLocked) {
+            let targetY = touchTarget.y + TOUCH_OFFSET_BASE.y;
+            head.y = Math.max(paddle.upperLimit + head.radius * config.paddle.headRadiusMultiplier, Math.min(canvas.height - head.radius * config.paddle.headRadiusMultiplier, targetY));
+            
+            let targetX = touchTarget.x + TOUCH_OFFSET_BASE.x;
+            const softBorder = canvas.width - 60; 
+            if (touchTarget.x > softBorder) {
+                 const ratio = (touchTarget.x - softBorder) / (canvas.width - softBorder);
+                 const adjustedOffset = TOUCH_OFFSET_BASE.x * (1 - ratio);
+                 targetX = touchTarget.x + adjustedOffset;
+            }
+            head.x = targetX;
+        }
+
+        // 패들 경계 처리 (키보드, 마우스/터치 모두에 적용)
+        const headRadius = head.radius * config.paddle.headRadiusMultiplier;
+        head.x = Math.max(headRadius, Math.min(canvas.width - headRadius, head.x));
+        head.y = Math.max(paddle.upperLimit + headRadius, Math.min(canvas.height - headRadius, head.y));
+
+
+        for (let i = 1; i < paddle.segments.length; i++) { const leader = paddle.segments[i - 1]; const follower = paddle.segments[i]; const dx = leader.x - follower.x; const dy = leader.y - follower.y; const distance = Math.sqrt(dx * dx + dy * dy); const targetDistance = (leader.radius + follower.radius) * 0.8; if (distance > targetDistance) { follower.x += (dx / distance) * (distance - targetDistance); follower.y += (dy / distance) * (distance - targetDistance); } }
+        if (food.status === 1) { food.x += food.dx; food.y += food.dy; if (food.x - food.size < 0 || food.x + food.size > canvas.width) food.dx *= -1; if (food.y - food.size < config.playAreaY || food.y + food.size > canvas.height) food.dy *= -1; }
+        if (!ball.visible) return;
+        
+        ball.history.push({ x: ball.x, y: ball.y });
+        if (ball.history.length > 10) {
+            ball.history.shift();
+        }
+
+        ball.dy += GRAVITY;
+        ball.x += ball.dx; ball.y += ball.dy;
+
+        const currentSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+        if (currentSpeed < MIN_BALL_SPEED && currentSpeed > 0) {
+            const scale = MIN_BALL_SPEED / currentSpeed;
+            ball.dx *= scale;
+            ball.dy *= scale;
+        }
+
+        if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) { ball.dx *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
+        if (ball.y - ball.radius < 0) { ball.dy *= -1; createParticles(ball.x, ball.y, '#ffffff', 5); }
+        if (ball.y + ball.radius > canvas.height) {
+            lives--;
+            createParticles(ball.x, canvas.height - 5, '#ff4444', 40, 60, 6);
+            if (lives <= 0) {
+                gameState = 'gameOver';
+            } else {
+                resetPaddle();
+                resetBall();
+                lockInput(1000);
+            }
+        }
+        
+        paddle.segments.forEach(segment => {
+            const dx = ball.x - segment.x;
+            const dy = ball.y - segment.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const segmentEffectiveRadius = segment.radius * (segment === paddle.segments[0] ? config.paddle.headRadiusMultiplier : 1);
+            
+            if (distance < ball.radius + segmentEffectiveRadius) {
+                const overlap = (ball.radius + segmentEffectiveRadius) - distance;
+                const normalX = dx / distance;
+                const normalY = dy / distance;
+
+                ball.x += normalX * overlap;
+                ball.y += normalY * overlap;
+                
+                const dotProduct = ball.dx * normalX + ball.dy * normalY;
+                ball.dx -= 2 * dotProduct * normalX;
+                ball.dy -= 2 * dotProduct * normalY;
+
+                if (normalY > 0.1) {
+                    ball.dy -= PADDLE_BOOST;
+                }
+            }
+        });
+
+        collisionDetection();
+    }
+
+    function draw(timestamp) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        drawParticles();
+        drawInfo();
+        if (gameState === 'playing' || gameState === 'stageStart' || gameState === 'stageCleared') { drawSeparator(); drawObjects(); }
+        
+        switch(gameState) {
+            case 'start': showMessage('<span style="font-size: 24px;">(터치 또는 클릭하여 시작)</span>'); break;
+            case 'stageStart': showMessage(`스테이지 ${stage}`); break;
+            case 'stageCleared': 
+                showMessage(`스테이지 ${stage}<br><span class="clear-text">클리어!</span>`);
+                nextStageBtn.style.display = 'block';
+                break;
+            case 'win':
+                showMessage('축하합니다!<br><span class="clear-text" style="font-size: 36px;">모든 스테이지 클리어!</span>');
+                createParticles(canvas.width * Math.random(), canvas.height * Math.random(), `hsl(${Math.random() * 360}, 100%, 70%)`, 1, 60, 10);
+                break;
+            case 'gameOver': showMessage(`게임 오버!<br><span style="font-size: 24px;">최종 점수: ${score}</span>`); break;
+        }
+        if (gameState !== 'playing' && gameState !== 'stageStart') { messageEl.parentElement.style.display = 'block'; } else { messageEl.parentElement.style.display = 'none'; }
+        
+        update(timestamp);
+        requestAnimationFrame(draw);
+    }
+
+    function showMessage(html) { messageEl.innerHTML = html; }
+    
+    resetGame();
+    gameState = 'start';
+    requestAnimationFrame(draw);
+</script>
+
+</body>
+</html>
